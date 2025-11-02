@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: etl_builder
+      POSTGRES_PASSWORD: etl_builder
+      POSTGRES_DB: etl_builder
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://etl_builder:etl_builder@postgres:5432/etl_builder
+    volumes:
+      - ./backend:/app/backend
+      - ./generated/dags:/app/generated/dags
+    ports:
+      - '8000:8000'
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_URL: http://backend:8000
+    volumes:
+      - ./frontend:/app
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+
+  airflow:
+    image: apache/airflow:2.8.3
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__FERNET_KEY: 'a_random_fernet_key_for_dev'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    volumes:
+      - ./generated/dags:/opt/airflow/dags
+    ports:
+      - '8080:8080'
+    command: ['standalone']
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
