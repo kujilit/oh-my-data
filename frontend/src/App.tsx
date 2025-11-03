@@ -16,10 +16,20 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import axios from 'axios';
 import NodeLegend from './components/NodeLegend';
+import ExtractNodeModal from './components/ExtractNodeModal';
+import ConnectionManager from './components/ConnectionManager';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
-type NodeCategory = 'source' | 'transform' | 'sink';
+interface ExtractConfig {
+  connection_id?: number;
+  connection_name?: string;
+  schema?: string;
+  table?: string;
+  columns?: string[];
+}
+
+type NodeCategory = 'source' | 'transform' | 'load' | 'extract';
 
 type BuilderNode = Node<{
   label: string;
@@ -47,7 +57,7 @@ const initialNodes: BuilderNode[] = [
   {
     id: '3',
     position: { x: 500, y: 0 },
-    data: { label: 'Sink: Active Users', type: 'sink', config: { table: 'active_users' } },
+    data: { label: 'load: Active Users', type: 'load', config: { table: 'active_users' } },
     type: 'default',
   },
 ];
@@ -71,8 +81,9 @@ const initialEdges: Edge[] = [
 
 const nodeTypeConfig: Record<NodeCategory, { label: string; config: Record<string, unknown> }> = {
   source: { label: 'New Source', config: { query: 'SELECT * FROM table' } },
+  extract: { label: 'New Extract', config: {} },
   transform: { label: 'New Transform', config: { code: 'return data' } },
-  sink: { label: 'New Sink', config: { destination: 'table_name' } },
+  load: { label: 'New Load', config: { destination: 'table_name' } },
 };
 
 function App() {
@@ -82,6 +93,11 @@ function App() {
   const [dagName, setDagName] = useState('example_etl');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Modal states
+  const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
+  const [isConnectionManagerOpen, setIsConnectionManagerOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -103,26 +119,71 @@ function App() {
 
   const addNode = useCallback(
     (category: NodeCategory) => {
-      setNodes((prev) => {
-        const id = String(nodeCounter);
-        const position = { x: 100 * nodeCounter, y: 100 };
-        const definition = nodeTypeConfig[category];
-        const newNode: BuilderNode = {
-          id,
-          position,
-          data: {
-            label: `${definition.label} ${id}`,
-            type: category,
-            config: definition.config,
-          },
-          type: 'default',
-        };
-        return [...prev, newNode];
-      });
+      const id = String(nodeCounter);
+      const position = { x: 100 * nodeCounter, y: 100 };
+      const definition = nodeTypeConfig[category];
+      const newNode: BuilderNode = {
+        id,
+        position,
+        data: {
+          label: `${definition.label} ${id}`,
+          type: category,
+          config: definition.config,
+        },
+        type: 'default',
+      };
+      
+      setNodes((prev) => [...prev, newNode]);
       setNodeCounter((value) => value + 1);
+      
+      // Open modal for extract nodes
+      if (category === 'extract') {
+        setEditingNodeId(id);
+        setIsExtractModalOpen(true);
+      }
     },
     [nodeCounter]
   );
+
+  const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: BuilderNode) => {
+    if (node.data.type === 'extract') {
+      setEditingNodeId(node.id);
+      setIsExtractModalOpen(true);
+    }
+  }, []);
+
+  const handleExtractConfigSave = useCallback((config: ExtractConfig) => {
+    if (!editingNodeId) return;
+    
+    setNodes((prev) =>
+      prev.map((node) => {
+        if (node.id === editingNodeId) {
+          // Build a descriptive label
+          let label = 'Extract: ';
+          if (config.connection_name) {
+            label += config.connection_name;
+            if (config.table) {
+              label += `.${config.table}`;
+            }
+          } else {
+            label += 'Not configured';
+          }
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              label,
+              config: config as Record<string, unknown>,
+            },
+          };
+        }
+        return node;
+      })
+    );
+    
+    setEditingNodeId(null);
+  }, [editingNodeId]);
 
   const payload = useMemo(() => {
     return {
@@ -151,8 +212,27 @@ function App() {
     }
   }, [payload]);
 
+  const editingNode = useMemo(() => {
+    return nodes.find((n) => n.id === editingNodeId);
+  }, [nodes, editingNodeId]);
+
   return (
     <div className="flex h-full w-full">
+      <ExtractNodeModal
+        isOpen={isExtractModalOpen}
+        onClose={() => {
+          setIsExtractModalOpen(false);
+          setEditingNodeId(null);
+        }}
+        onSave={handleExtractConfigSave}
+        initialConfig={editingNode?.data.config as ExtractConfig}
+      />
+      
+      <ConnectionManager
+        isOpen={isConnectionManagerOpen}
+        onClose={() => setIsConnectionManagerOpen(false)}
+      />
+      
       <aside className="w-80 bg-slate-900 p-6 space-y-6 border-r border-slate-800">
         <div>
           <h1 className="text-2xl font-semibold mb-2">Visual ETL Builder</h1>
@@ -172,8 +252,25 @@ function App() {
           />
         </div>
         <div className="space-y-2">
+          <span className="block text-xs uppercase tracking-wide text-slate-400">Управление</span>
+          <button
+            type="button"
+            onClick={() => setIsConnectionManagerOpen(true)}
+            className="w-full rounded bg-slate-700 px-3 py-2 text-sm font-medium hover:bg-slate-600"
+          >
+            🔌 Подключения к БД
+          </button>
+        </div>
+        <div className="space-y-2">
           <span className="block text-xs uppercase tracking-wide text-slate-400">Добавить ноду</span>
           <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => addNode('extract')}
+              className="rounded bg-cyan-600 px-3 py-2 text-sm font-medium hover:bg-cyan-500"
+            >
+              Extract (DB)
+            </button>
             <button
               type="button"
               onClick={() => addNode('source')}
@@ -190,10 +287,10 @@ function App() {
             </button>
             <button
               type="button"
-              onClick={() => addNode('sink')}
+              onClick={() => addNode('load')}
               className="rounded bg-purple-600 px-3 py-2 text-sm font-medium hover:bg-purple-500"
             >
-              Sink
+              load
             </button>
           </div>
         </div>
@@ -222,6 +319,7 @@ function App() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onNodeDoubleClick={onNodeDoubleClick}
           fitView
           className="bg-slate-950"
         >

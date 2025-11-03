@@ -64,7 +64,7 @@ curl -X POST http://localhost:8000/generate_dag \
         "nodes": [
           {"id": "1", "type": "source", "name": "users", "config": {"query": "SELECT * FROM users"}},
           {"id": "2", "type": "transform", "name": "filter_active", "config": {"function": "filter(lambda x: x[\'active\'], data)"}},
-          {"id": "3", "type": "sink", "name": "to_postgres", "config": {"table": "active_users"}}
+          {"id": "3", "type": "load", "name": "to_postgres", "config": {"table": "active_users"}}
         ],
         "edges": [
           {"from": "1", "to": "2"},

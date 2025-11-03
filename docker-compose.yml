@@ -42,7 +42,7 @@ services:
     image: apache/airflow:2.8.3
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
-      AIRFLOW__CORE__FERNET_KEY: 'a_random_fernet_key_for_dev'
+      AIRFLOW__CORE__FERNET_KEY: 'IUD_qsiJf2a6SYA5a-sQ6IbfhXMFugAUxgAi63JvUaQ='
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
     volumes:

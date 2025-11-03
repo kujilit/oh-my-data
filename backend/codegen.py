@@ -38,7 +38,7 @@ def _default_code(node: Dict) -> str:
         body = [f"# TODO: Implement data extraction for {node.get('name', node.get('id'))}", "return {'data': 'sample'}"]
     elif node.get("type") == "transform":
         body = ["# TODO: Implement transformation logic", "return data"]
-    elif node.get("type") == "sink":
+    elif node.get("type") == "load":
         body = ["# TODO: Implement load logic", "return None"]
     else:
         body = ["# TODO: Implement logic for node", f"return {config_preview}"]

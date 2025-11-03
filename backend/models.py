@@ -29,4 +29,20 @@ class NodeType(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-__all__ = ["Base", "NodeType", "engine", "SessionLocal"]
+class DatabaseConnection(Base):
+    __tablename__ = "database_connections"
+
+    id: int = Column(Integer, primary_key=True, index=True)
+    name: str = Column(String(100), unique=True, nullable=False)
+    db_type: str = Column(String(50), nullable=False)  # postgresql, mysql, sqlite, etc.
+    host: Optional[str] = Column(String(255), nullable=True)
+    port: Optional[int] = Column(Integer, nullable=True)
+    database: str = Column(String(100), nullable=False)
+    username: Optional[str] = Column(String(100), nullable=True)
+    password: Optional[str] = Column(String(255), nullable=True)
+    extra_params: Optional[str] = Column(Text, nullable=True)  # JSON string for additional params
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+__all__ = ["Base", "NodeType", "DatabaseConnection", "engine", "SessionLocal"]
