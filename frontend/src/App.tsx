@@ -11,6 +11,7 @@ import ReactFlow, {
   EdgeChange,
   MarkerType,
   Node,
+  type NodeProps,
   NodeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -18,6 +19,7 @@ import axios from 'axios';
 import NodeLegend from './components/NodeLegend';
 import ExtractNodeModal from './components/ExtractNodeModal';
 import ConnectionManager from './components/ConnectionManager';
+import BuilderNode from './components/BuilderNode';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
@@ -31,18 +33,31 @@ interface ExtractConfig {
 
 type NodeCategory = 'source' | 'transform' | 'load' | 'extract';
 
-type BuilderNode = Node<{
+type BuilderNodeData = {
   label: string;
   type: NodeCategory;
   config: Record<string, unknown>;
-}>;
+};
 
-const initialNodes: BuilderNode[] = [
+type BuilderFlowNode = Node<BuilderNodeData>;
+
+const SOURCE_OPTIONS = [
+  { id: 'users', label: 'Users' },
+  { id: 'orders', label: 'Orders' },
+  { id: 'payments', label: 'Payments' },
+  { id: 'events', label: 'Events' },
+];
+
+const initialNodes: BuilderFlowNode[] = [
   {
     id: '1',
     position: { x: 0, y: 0 },
-    data: { label: 'Source: Users', type: 'source', config: { query: 'SELECT * FROM users' } },
-    type: 'default',
+    data: {
+      label: 'Source: Users',
+      type: 'source',
+      config: { query: 'SELECT * FROM users', sources: ['users'] },
+    },
+    type: 'builder',
   },
   {
     id: '2',
@@ -52,13 +67,13 @@ const initialNodes: BuilderNode[] = [
       type: 'transform',
       config: { function: "[x for x in data if x['active']]" },
     },
-    type: 'default',
+    type: 'builder',
   },
   {
     id: '3',
     position: { x: 500, y: 0 },
     data: { label: 'load: Active Users', type: 'load', config: { table: 'active_users' } },
-    type: 'default',
+    type: 'builder',
   },
 ];
 
@@ -80,14 +95,21 @@ const initialEdges: Edge[] = [
 ];
 
 const nodeTypeConfig: Record<NodeCategory, { label: string; config: Record<string, unknown> }> = {
-  source: { label: 'New Source', config: { query: 'SELECT * FROM table' } },
-  extract: { label: 'New Extract', config: {} },
+  source: { label: 'New Source', config: { query: 'SELECT * FROM table', sources: [] } },
+  extract: { label: 'New Extract', config: { sources: [] } },
   transform: { label: 'New Transform', config: { code: 'return data' } },
   load: { label: 'New Load', config: { destination: 'table_name' } },
 };
 
+const NODE_TYPE_OPTIONS: { id: NodeCategory; label: string }[] = [
+  { id: 'extract', label: 'Extract' },
+  { id: 'source', label: 'Source' },
+  { id: 'transform', label: 'Transform' },
+  { id: 'load', label: 'Load' },
+];
+
 function App() {
-  const [nodes, setNodes] = useState<BuilderNode[]>(initialNodes);
+  const [nodes, setNodes] = useState<BuilderFlowNode[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const [nodeCounter, setNodeCounter] = useState(initialNodes.length + 1);
   const [dagName, setDagName] = useState('example_etl');
@@ -117,12 +139,89 @@ function App() {
     []
   );
 
+  const handleNodeLabelChange = useCallback((nodeId: string, label: string) => {
+    setNodes((prev) =>
+      prev.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                label,
+              },
+            }
+          : node
+      )
+    );
+  }, []);
+
+  const handleNodeConfigChange = useCallback((nodeId: string, config: Record<string, unknown>) => {
+    setNodes((prev) =>
+      prev.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                config,
+              },
+            }
+          : node
+      )
+    );
+  }, []);
+
+  const handleNodeTypeChange = useCallback(
+    (nodeId: string, nextType: NodeCategory) => {
+      setNodes((prev) =>
+        prev.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+
+          const definition = nodeTypeConfig[nextType];
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              type: nextType,
+              config: { ...definition.config },
+            },
+          };
+        })
+      );
+
+      if (nextType === 'extract') {
+        setEditingNodeId(nodeId);
+        setIsExtractModalOpen(true);
+      }
+    },
+    []
+  );
+
+  const nodeTypes = useMemo(
+    () => ({
+      builder: (props: NodeProps<BuilderNodeData>) => (
+        <BuilderNode
+          {...props}
+          availableSources={SOURCE_OPTIONS}
+          availableNodeTypes={NODE_TYPE_OPTIONS}
+          onLabelChange={(label) => handleNodeLabelChange(props.id, label)}
+          onConfigChange={(config) => handleNodeConfigChange(props.id, config)}
+          onTypeChange={(type) => handleNodeTypeChange(props.id, type as NodeCategory)}
+        />
+      ),
+    }),
+    [handleNodeConfigChange, handleNodeLabelChange, handleNodeTypeChange]
+  );
+
   const addNode = useCallback(
     (category: NodeCategory) => {
       const id = String(nodeCounter);
       const position = { x: 100 * nodeCounter, y: 100 };
       const definition = nodeTypeConfig[category];
-      const newNode: BuilderNode = {
+      const newNode: BuilderFlowNode = {
         id,
         position,
         data: {
@@ -130,9 +229,9 @@ function App() {
           type: category,
           config: definition.config,
         },
-        type: 'default',
+        type: 'builder',
       };
-      
+
       setNodes((prev) => [...prev, newNode]);
       setNodeCounter((value) => value + 1);
       
@@ -145,7 +244,7 @@ function App() {
     [nodeCounter]
   );
 
-  const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: BuilderNode) => {
+  const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: BuilderFlowNode) => {
     if (node.data.type === 'extract') {
       setEditingNodeId(node.id);
       setIsExtractModalOpen(true);
@@ -154,7 +253,7 @@ function App() {
 
   const handleExtractConfigSave = useCallback((config: ExtractConfig) => {
     if (!editingNodeId) return;
-    
+
     setNodes((prev) =>
       prev.map((node) => {
         if (node.id === editingNodeId) {
@@ -168,13 +267,16 @@ function App() {
           } else {
             label += 'Not configured';
           }
-          
+
+          const existingConfig = (node.data.config ?? {}) as Record<string, unknown>;
+          const mergedConfig = { ...existingConfig, ...config } as Record<string, unknown>;
+
           return {
             ...node,
             data: {
               ...node.data,
               label,
-              config: config as Record<string, unknown>,
+              config: mergedConfig,
             },
           };
         }
@@ -316,6 +418,7 @@ function App() {
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
